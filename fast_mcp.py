@@ -14,6 +14,17 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
+from pydantic import BaseModel, Field
+from pydantic.networks import AnyUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
+
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
@@ -52,28 +63,34 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
-from pydantic import BaseModel, Field
-from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings
-from starlette.applications import Starlette
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Route
-from starlette.types import Receive, Scope, Send
 
 from configs import config
 
 logger = get_logger(__name__)
 
 
-class Settings(BaseSettings,Generic[LifespanResultT]):
+class Settings(BaseSettings, Generic[LifespanResultT]):
     """FastMCP server settings.
 
     All settings can be configured via environment variables with the prefix FASTMCP_.
     For example, FASTMCP_DEBUG=true will set debug=True.
     """
+
+    # model_config = SettingsConfigDict(
+    #     env_prefix="FASTMCP_",
+    #     env_file=".env",
+    #     env_nested_delimiter="__",
+    #     nested_model_default_partial_update=True,
+    #     extra="ignore",
+    # )
+
+    # Server settings
+    debug: bool = config.DEBUG
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
     # HTTP settings
+    host: str = config.APP_HOST
+    port: int = config.APP_PORT
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
@@ -123,6 +140,8 @@ def lifespan_wrapper(
 class FastMCP:
     def __init__(
         self,
+        name: str | None = None,
+        instructions: str | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
         event_store: EventStore | None = None,
@@ -133,8 +152,8 @@ class FastMCP:
         self.settings = Settings(**settings)
 
         self._mcp_server = MCPServer(
-            name=config.APP_NAME,
-            instructions=config.APP_DESCRIPTION,
+            name=name or "FastMCP",
+            instructions=instructions,
             lifespan=(
                 lifespan_wrapper(self, self.settings.lifespan)
                 if self.settings.lifespan
@@ -747,7 +766,7 @@ class FastMCP:
 
         # Create Starlette app with routes and middleware
         return Starlette(
-            debug=config.DEBUG, routes=routes, middleware=middleware
+            debug=self.settings.debug, routes=routes, middleware=middleware
         )
 
     def streamable_http_app(self) -> Starlette:
@@ -818,7 +837,7 @@ class FastMCP:
         routes.extend(self._custom_starlette_routes)
 
         return Starlette(
-            debug=config.DEBUG,
+            debug=self.settings.debug,
             routes=routes,
             middleware=middleware,
             lifespan=lambda app: self.session_manager.run(),

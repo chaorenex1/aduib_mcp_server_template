@@ -68,17 +68,41 @@ def init_apps(app: AduibAIApp):
 def init_fast_mcp(app: AduibAIApp):
     if not config.DISCOVERY_SERVICE_ENABLED:
         from fast_mcp import FastMCP
-        mcp = FastMCP()
-        if config.TRANSPORT_TYPE == "stdio":
-            mcp.run(transport=config.TRANSPORT_TYPE)
-        elif config.TRANSPORT_TYPE == "sse":
-            app.mount("/", mcp.sse_app(), name="mcp_see")
-        elif config.TRANSPORT_TYPE == "streamable-http":
-            app.mount("/", mcp.streamable_http_app(), name="mcp_streamable_http")
-        app.mcp = mcp
+        mcp = FastMCP(name=config.APP_NAME,instructions=config.APP_DESCRIPTION,version=config.APP_VERSION)
+        create_mcp_app(app, mcp)
         log.info("fast mcp initialized successfully")
     else:
-        log.info("discovery service initialized successfully")
+        if config.DISCOVERY_SERVICE_TYPE=="nacos":
+            log.info("Initializing discovery service with Nacos")
+            from nacos_mcp_wrapper.server.nacos_settings import NacosSettings
+            nacos_settings = NacosSettings(
+                SERVER_ADDR=config.NACOS_SERVER_ADDR,
+                NAMESPACE=config.NACOS_NAMESPACE,
+                USERNAME=config.NACOS_USERNAME,
+                PASSWORD=config.NACOS_PASSWORD,
+                SERVICE_GROUP=config.NACOS_GROUP,
+                SERVICE_PORT=config.APP_PORT,
+                SERVICE_NAME=config.APP_NAME,
+                APP_CONN_LABELS={"version": config.APP_VERSION} if config.APP_VERSION else None,
+                SERVICE_META_DATA={"transport": config.TRANSPORT_TYPE},
+            )
+            from nacos_mcp import NacosMCP
+            mcp = NacosMCP(name=config.APP_NAME,
+                           nacos_settings=nacos_settings,
+                           instructions=config.APP_DESCRIPTION,
+                           version=config.APP_VERSION)
+            create_mcp_app(app, mcp)
+            log.info("discovery service initialized successfully")
+
+
+def create_mcp_app(app, mcp):
+    if config.TRANSPORT_TYPE == "stdio":
+        mcp.run(transport=config.TRANSPORT_TYPE)
+    elif config.TRANSPORT_TYPE == "sse":
+        app.mount("/", mcp.sse_app(), name="mcp_see")
+    elif config.TRANSPORT_TYPE == "streamable-http":
+        app.mount("/", mcp.streamable_http_app(), name="mcp_streamable_http")
+    app.mcp = mcp
 
 
 @contextlib.asynccontextmanager
