@@ -8,7 +8,6 @@ from mcp.server.fastmcp.server import lifespan_wrapper
 from mcp.server.fastmcp.tools import Tool
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.streamable_http import EventStore
-
 from nacos_mcp_wrapper.server.nacos_server import NacosServer
 from nacos_mcp_wrapper.server.nacos_settings import NacosSettings
 
@@ -47,8 +46,8 @@ class NacosMCP(FastMCP):
             else default_lifespan,
         )
 
-    # Set up MCP protocol handlers
-    # self._setup_handlers()
+        # Set up MCP protocol handlers
+        self._setup_handlers()
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""

@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import inspect
+import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import (
@@ -14,17 +15,6 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel, Field
-from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
-
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
@@ -38,7 +28,6 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
-from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
@@ -63,10 +52,19 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
+from pydantic import BaseModel, Field
+from pydantic.networks import AnyUrl
+from pydantic_settings import BaseSettings
+from starlette.applications import Starlette
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Route
+from starlette.types import Receive, Scope, Send
 
 from configs import config
 
-logger = get_logger(__name__)
+logger=logging.getLogger(__name__)
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -320,7 +318,6 @@ class FastMCP:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
-            logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
 
     def add_tool(
@@ -341,6 +338,7 @@ class FastMCP:
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
         """
+        logger.debug(f"Adding tool {fn.__name__}")
         self._tool_manager.add_tool(
             fn, name=name, description=description, annotations=annotations
         )
@@ -452,6 +450,7 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
+            logger.debug(f"Adding resource {fn.__name__}")
             # Check if this should be a template
             has_uri_params = "{" in uri and "}" in uri
             has_func_params = bool(inspect.signature(fn).parameters)
@@ -541,6 +540,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
+            logger.debug(f"Adding prompt {func.__name__}")
             prompt = Prompt.from_function(func, name=name, description=description)
             self.add_prompt(prompt)
             return func
@@ -871,7 +871,6 @@ class FastMCP:
 
             return GetPromptResult(messages=pydantic_core.to_jsonable_python(messages))
         except Exception as e:
-            logger.error(f"Error getting prompt {name}: {e}")
             raise ValueError(str(e))
 
 

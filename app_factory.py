@@ -2,6 +2,7 @@ import contextlib
 import logging
 import os
 import time
+from contextvars import ContextVar
 from typing import AsyncIterator
 
 from fastapi.routing import APIRoute
@@ -12,11 +13,20 @@ from component.log.app_logging import init_logging
 from configs import config
 from controllers.route import api_router
 from libs.context import LoggingMiddleware, TraceIdContextMiddleware, ApiKeyContextMiddleware
+from libs.contextVar_wrapper import ContextVarWrappers
+from mcp_service import load_mcp_plugins
 
 log=logging.getLogger(__name__)
 
+app_context: ContextVarWrappers[AduibAIApp]=ContextVarWrappers(ContextVar("app_context"))
+
 
 def create_app_with_configs()->AduibAIApp:
+    """ Create the FastAPI app with necessary configurations and middlewares.
+    :return: AduibAIApp instance
+    """
+    if app_context.get():
+        return app_context.get()
     def custom_generate_unique_id(route: APIRoute) -> str:
         return f"{route.tags[0]}-{route.name}"
 
@@ -38,6 +48,7 @@ def create_app_with_configs()->AduibAIApp:
         log.warning("Running in debug mode, this is not recommended for production use.")
         app.add_middleware(LoggingMiddleware)
     app.add_middleware(TraceIdContextMiddleware)
+    app_context.set(app)
     return app
 
 
@@ -46,7 +57,6 @@ def create_app()->AduibAIApp:
     app = create_app_with_configs()
     init_logging(app)
     init_apps(app)
-    init_fast_mcp(app)
     end_time = time.perf_counter()
     log.info(f"App home directory: {app.app_home}")
     log.info(f"Finished create_app ({round((end_time - start_time) * 1000, 2)} ms)")
@@ -63,14 +73,12 @@ def init_apps(app: AduibAIApp):
     log.info("middlewares initialized successfully")
 
 def init_fast_mcp(app: AduibAIApp):
+    global mcp
     if not config.DISCOVERY_SERVICE_ENABLED:
         from fast_mcp import FastMCP
         mcp = FastMCP(name=config.APP_NAME,instructions=config.APP_DESCRIPTION,version=config.APP_VERSION)
-        create_mcp_app(app, mcp)
-        log.info("fast mcp initialized successfully")
     else:
         if config.DISCOVERY_SERVICE_TYPE=="nacos":
-            log.info("Initializing discovery service with Nacos")
             from nacos_mcp_wrapper.server.nacos_settings import NacosSettings
             nacos_settings = NacosSettings(
                 SERVER_ADDR=config.NACOS_SERVER_ADDR,
@@ -88,18 +96,17 @@ def init_fast_mcp(app: AduibAIApp):
                            nacos_settings=nacos_settings,
                            instructions=config.APP_DESCRIPTION,
                            version=config.APP_VERSION)
-            create_mcp_app(app, mcp)
-            log.info("discovery service initialized successfully")
-
-
-def create_mcp_app(app, mcp):
-    if config.TRANSPORT_TYPE == "stdio":
-        mcp.run(transport=config.TRANSPORT_TYPE)
-    elif config.TRANSPORT_TYPE == "sse":
-        app.mount("/", mcp.sse_app(), name="mcp_see")
-    elif config.TRANSPORT_TYPE == "streamable-http":
-        app.mount("/", mcp.streamable_http_app(), name="mcp_streamable_http")
     app.mcp = mcp
+    load_mcp_plugins("mcp_service")
+    log.info("fast mcp initialized successfully")
+
+def run_mcp_server(app):
+    if config.TRANSPORT_TYPE == "stdio":
+        app.mcp.run(transport=config.TRANSPORT_TYPE)
+    elif config.TRANSPORT_TYPE == "sse":
+        app.mount("/", app.mcp.sse_app(), name="mcp_see")
+    elif config.TRANSPORT_TYPE == "streamable-http":
+        app.mount("/", app.mcp.streamable_http_app(), name="mcp_streamable_http")
 
 
 @contextlib.asynccontextmanager

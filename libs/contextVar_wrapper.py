@@ -16,7 +16,10 @@ class ContextVarWrappers(Generic[T]):
         self._storage.set(value)
 
     def get(self) -> T:
-        return self._storage.get()
+        try:
+            return self._storage.get()
+        except LookupError:
+            return None
 
     def clear(self) -> None:
         self._storage.set({})
