@@ -5,16 +5,13 @@ import time
 from typing import AsyncIterator
 
 from fastapi.routing import APIRoute
-from starlette.applications import Starlette
 
 from aduib_app import AduibAIApp
 from component.cache.redis_cache import init_cache
 from component.log.app_logging import init_logging
 from configs import config
 from controllers.route import api_router
-from fast_mcp import FastMCP
 from libs.context import LoggingMiddleware, TraceIdContextMiddleware, ApiKeyContextMiddleware
-from utils import AsyncUtils
 
 log=logging.getLogger(__name__)
 
